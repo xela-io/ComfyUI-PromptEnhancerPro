@@ -514,6 +514,91 @@ class OllamaModelManager:
 
 
 # ============================================================================
+# Context File Loader
+# ============================================================================
+
+# Directory for context files
+CONTEXT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "context")
+
+
+def get_context_files() -> List[str]:
+    """Get list of available context files."""
+    if not os.path.exists(CONTEXT_DIR):
+        os.makedirs(CONTEXT_DIR, exist_ok=True)
+        return ["(no files)"]
+
+    files = []
+    for f in os.listdir(CONTEXT_DIR):
+        if f.endswith((".txt", ".md")):
+            files.append(f)
+
+    return sorted(files) if files else ["(no files)"]
+
+
+class ContextFileLoader:
+    """
+    Load context from a text file to use with Prompt Enhancer Pro.
+
+    Place .txt or .md files in the 'context/' folder within the node directory.
+    """
+
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        context_files = get_context_files()
+
+        return {
+            "required": {
+                "file_name": (context_files, {
+                    "default": context_files[0] if context_files else "(no files)"
+                }),
+            },
+            "optional": {
+                "additional_context": ("STRING", {
+                    "multiline": True,
+                    "default": "",
+                    "placeholder": "Additional context to append..."
+                }),
+            }
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("context",)
+    FUNCTION = "load_context"
+    CATEGORY = "prompt/enhancement"
+
+    def load_context(
+        self,
+        file_name: str,
+        additional_context: str = "",
+    ) -> Tuple[str]:
+        """Load context from file."""
+
+        if file_name == "(no files)":
+            print("[ContextFileLoader] No context files found in context/ folder")
+            return (additional_context,)
+
+        file_path = os.path.join(CONTEXT_DIR, file_name)
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+
+            print(f"[ContextFileLoader] Loaded {file_name} ({len(content)} chars)")
+
+            if additional_context:
+                content = f"{content}\n\n{additional_context}"
+
+            return (content,)
+
+        except Exception as e:
+            print(f"[ContextFileLoader] Error loading {file_name}: {e}")
+            return (additional_context,)
+
+
+# ============================================================================
 # Node Registration
 # ============================================================================
 
@@ -522,6 +607,7 @@ NODE_CLASS_MAPPINGS = {
     "PromptEnhancerProAdvanced": PromptEnhancerProAdvanced,
     "OllamaConnectionChecker": OllamaConnectionChecker,
     "OllamaModelManager": OllamaModelManager,
+    "ContextFileLoader": ContextFileLoader,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -529,4 +615,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "PromptEnhancerProAdvanced": "Prompt Enhancer Pro (Advanced)",
     "OllamaConnectionChecker": "Ollama Connection Checker",
     "OllamaModelManager": "Ollama Model Manager",
+    "ContextFileLoader": "Context File Loader",
 }

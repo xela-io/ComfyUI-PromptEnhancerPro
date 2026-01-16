@@ -1,0 +1,8 @@
+Style: Photorealistic
+Format: SDXL 1024x1024
+Preferences:
+- Natural lighting preferred
+- No anime or cartoon styles
+- Focus on realistic skin textures
+- Shallow depth of field
+- Professional photography look
