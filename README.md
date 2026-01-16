@@ -10,11 +10,11 @@ A professional ComfyUI custom node for LLM-powered prompt enhancement using Olla
 
 - **Dynamic Model Detection**: Automatically detects available Ollama models via dropdown
 - **Multiple Enhancement Modes**: Character Builder, Freeform, Scene Builder, Portrait, Custom Template
-- **VRAM Management**: Automatic model unloading after generation to free GPU memory
+- **Smart VRAM Management**: Automatic ComfyUI VRAM clearing before Ollama + model unloading after
+- **Context File Support**: Load context from external files for consistent style/format preferences
 - **Reproducible Results**: Seed support for deterministic prompt generation
 - **Negative Prompt Generation**: Advanced mode generates matching negative prompts
 - **Docker Ready**: Auto-detection of Ollama endpoints (localhost, Docker gateway, host.docker.internal)
-- **Async HTTP**: Uses aiohttp for non-blocking requests with urllib fallback
 
 ## Nodes
 
@@ -37,6 +37,7 @@ Main node for LLM-powered prompt enhancement.
 | `temperature` | FLOAT | 0.7 | Sampling temperature (0.0-2.0) |
 | `max_tokens` | INT | 500 | Maximum tokens to generate (50-2000) |
 | `unload_after` | BOOLEAN | True | Unload model after generation to free VRAM |
+| `free_vram_before` | BOOLEAN | True | Free ComfyUI VRAM before Ollama request (prevents VRAM conflicts) |
 | `ollama_url` | STRING | host.docker.internal:11434 | Ollama API endpoint |
 | `timeout` | INT | 120 | Request timeout in seconds |
 
@@ -106,6 +107,36 @@ VRAM management utility for manual model control.
 | `unload_model` | Remove specific model from VRAM |
 | `unload_all` | Clear all models from VRAM |
 | `refresh_models` | Refresh the model dropdown list |
+
+---
+
+### 5. Context File Loader
+
+Load context from external files to use with Prompt Enhancer Pro.
+
+#### Inputs
+
+| Input | Type | Description |
+|-------|------|-------------|
+| `file_name` | DROPDOWN | Context file from `context/` folder (auto-detected) |
+| `additional_context` | STRING | Extra context to append |
+
+#### Outputs
+
+| Output | Type | Description |
+|--------|------|-------------|
+| `context` | STRING | Combined context (file content + additional) |
+
+#### Usage
+
+1. Place `.txt` or `.md` files in the `context/` folder
+2. Add **Context File Loader** node
+3. Select a file from the dropdown
+4. Connect `context` output to `context_info` input of Prompt Enhancer Pro
+
+```
+[Context File Loader] ──context──► [Prompt Enhancer Pro (context_info)]
+```
 
 ---
 
@@ -374,16 +405,24 @@ prompt_enhancer_pro/
 │   └── prompt_enhancer.py   # Main node implementations
 ├── utils/
 │   ├── __init__.py
-│   ├── ollama_client.py     # Async Ollama API client
+│   ├── ollama_client.py     # Sync Ollama API client (urllib)
 │   ├── vram_manager.py      # VRAM load/unload management
 │   └── templates.py         # Built-in enhancement templates
-└── templates/
-    └── character_builder.txt # External template file
+├── templates/
+│   └── character_builder.txt # External template file
+└── context/
+    └── example_photorealistic.txt  # Example context file
 ```
 
 ---
 
 ## Changelog
+
+### v1.1.0 (2026-01-16)
+- Added **Context File Loader** node for loading context from external files
+- Added `free_vram_before` option to free ComfyUI VRAM before Ollama requests
+- Added `context/` folder with example context file
+- Prevents VRAM conflicts between ComfyUI models and Ollama
 
 ### v1.0.0 (2026-01-16)
 - Initial release
@@ -392,7 +431,7 @@ prompt_enhancer_pro/
 - Dynamic Ollama model detection via dropdown
 - Full VRAM management with automatic unload
 - Docker support with host.docker.internal
-- Async HTTP support with aiohttp (urllib fallback)
+- Synchronous HTTP using urllib (stable with ComfyUI event loop)
 - Seed support for reproducible results
 
 ---
