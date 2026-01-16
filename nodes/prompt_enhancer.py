@@ -10,7 +10,16 @@ import json
 import urllib.request
 import urllib.error
 import os
+import gc
 from typing import Tuple, Optional, List
+
+# ComfyUI model management for VRAM control
+try:
+    import comfy.model_management as model_management
+    HAS_MODEL_MANAGEMENT = True
+except ImportError:
+    HAS_MODEL_MANAGEMENT = False
+    print("[PromptEnhancerPro] Warning: comfy.model_management not available")
 
 from ..utils import (
     OllamaClient,
@@ -106,6 +115,43 @@ def get_effective_seed(seed_input: int) -> int:
     return seed_input
 
 
+def free_comfyui_vram() -> bool:
+    """
+    Free ComfyUI's VRAM by unloading all models.
+
+    Returns:
+        True if VRAM was freed successfully, False otherwise
+    """
+    if not HAS_MODEL_MANAGEMENT:
+        print("[PromptEnhancerPro] Cannot free VRAM: model_management not available")
+        return False
+
+    try:
+        print("[PromptEnhancerPro] Freeing ComfyUI VRAM...")
+
+        # Unload all models from VRAM
+        model_management.unload_all_models()
+
+        # Clear CUDA cache
+        model_management.soft_empty_cache()
+
+        # Force Python garbage collection
+        gc.collect()
+
+        # Try to get VRAM info
+        try:
+            free_vram = model_management.get_free_memory() / (1024**3)
+            print(f"[PromptEnhancerPro] VRAM freed. Available: {free_vram:.1f} GB")
+        except:
+            print("[PromptEnhancerPro] VRAM freed successfully")
+
+        return True
+
+    except Exception as e:
+        print(f"[PromptEnhancerPro] Error freeing VRAM: {e}")
+        return False
+
+
 class PromptEnhancerPro:
     """
     Main Prompt Enhancer Pro Node
@@ -170,6 +216,11 @@ class PromptEnhancerPro:
                     "label_on": "Unload Model",
                     "label_off": "Keep Loaded"
                 }),
+                "free_vram_before": ("BOOLEAN", {
+                    "default": True,
+                    "label_on": "Free VRAM First",
+                    "label_off": "Keep Models"
+                }),
                 "ollama_url": ("STRING", {
                     "default": "http://host.docker.internal:11434",
                     "placeholder": "Ollama API URL"
@@ -201,6 +252,7 @@ class PromptEnhancerPro:
         temperature: float = 0.7,
         max_tokens: int = 500,
         unload_after: bool = True,
+        free_vram_before: bool = True,
         ollama_url: str = "http://host.docker.internal:11434",
         timeout: int = 120,
     ) -> Tuple[str, str, str, int]:
@@ -209,6 +261,10 @@ class PromptEnhancerPro:
         if not base_prompt or not base_prompt.strip():
             print("[PromptEnhancerPro] Warning: Empty prompt provided")
             return ("", "", model_name, seed if seed >= 0 else 0)
+
+        # Free ComfyUI VRAM before Ollama request if enabled
+        if free_vram_before:
+            free_comfyui_vram()
 
         effective_seed = get_effective_seed(seed)
 
@@ -303,6 +359,7 @@ class PromptEnhancerProAdvanced(PromptEnhancerPro):
         temperature: float = 0.7,
         max_tokens: int = 500,
         unload_after: bool = True,
+        free_vram_before: bool = True,
         ollama_url: str = "http://host.docker.internal:11434",
         timeout: int = 120,
         negative_prompt_mode: bool = False,
@@ -339,6 +396,7 @@ class PromptEnhancerProAdvanced(PromptEnhancerPro):
             temperature=temperature,
             max_tokens=max_tokens,
             unload_after=False if negative_prompt_mode else unload_after,
+            free_vram_before=free_vram_before,
             ollama_url=ollama_url,
             timeout=timeout,
         )
