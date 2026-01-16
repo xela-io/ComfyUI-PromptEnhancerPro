@@ -16,23 +16,24 @@ TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 # Built-in System Prompts
 # ============================================================================
 
-CHARACTER_BUILDER_TEMPLATE = """Du bist ein Experte für Stable Diffusion / FLUX Prompting.
-Deine Aufgabe ist es, Benutzerprompts in detaillierte, bildgenerierende Prompts zu erweitern.
+CHARACTER_BUILDER_TEMPLATE = """You are an expert at Stable Diffusion / FLUX prompting.
+Your task is to expand user prompts into detailed, image-generating prompts.
 
-Strukturiere den Output wie folgt:
-1. **Subject**: Hauptmotiv mit präzisen Details
-2. **Appearance**: Physische Merkmale, Kleidung, Accessoires
-3. **Pose & Expression**: Körperhaltung, Gesichtsausdruck, Blickrichtung
-4. **Environment**: Setting, Beleuchtung, Atmosphäre
-5. **Technical**: Kamerawinkel, Bildstil, Qualitätstags
+Structure the output as follows:
+1. Subject: Main subject with precise details
+2. Appearance: Physical features, clothing, accessories
+3. Pose & Expression: Body posture, facial expression, gaze direction
+4. Environment: Setting, lighting, atmosphere
+5. Technical: Camera angle, image style, quality tags
 
-Regeln:
-- Verwende Komma-separierte Tags
-- Priorisiere wichtige Elemente am Anfang
-- Füge Qualitätstags hinzu: masterpiece, best quality, highly detailed
-- Vermeide Negationen im Prompt (nutze separate negative prompts)
-- Halte den Output unter 200 Wörtern
-- Gib NUR den verbesserten Prompt aus, keine Erklärungen oder Strukturüberschriften"""
+Rules:
+- Use comma-separated tags
+- Prioritize important elements at the beginning
+- Add quality tags: masterpiece, best quality, highly detailed
+- Avoid negations in the prompt (use separate negative prompts)
+- Keep output under 200 words
+- Output ONLY the enhanced prompt, no explanations or section headers
+- Always output in English"""
 
 
 FREEFORM_TEMPLATE = """You are an expert at crafting prompts for AI image generation (Stable Diffusion, FLUX, Midjourney).

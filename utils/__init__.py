@@ -2,7 +2,7 @@
 Utility modules for Prompt Enhancer Pro
 """
 
-from .ollama_client import OllamaClient, OllamaResponse, run_async
+from .ollama_client import OllamaClient, OllamaResponse
 from .vram_manager import VRAMManager, ModelInfo
 from .templates import (
     get_template,
@@ -22,7 +22,6 @@ __all__ = [
     "OllamaResponse",
     "VRAMManager",
     "ModelInfo",
-    "run_async",
     "get_template",
     "build_system_prompt",
     "list_built_in_templates",

@@ -9,12 +9,12 @@ import random
 import json
 import urllib.request
 import urllib.error
+import os
 from typing import Tuple, Optional, List
 
 from ..utils import (
     OllamaClient,
     VRAMManager,
-    run_async,
     build_system_prompt,
     list_built_in_templates,
     list_model_presets,
@@ -22,9 +22,7 @@ from ..utils import (
 
 
 # Default Ollama URL - can be overridden via environment or config
-# Use host.docker.internal for Docker containers, localhost for native
-import os
-DEFAULT_OLLAMA_URL = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+DEFAULT_OLLAMA_URL = os.environ.get("OLLAMA_HOST", "http://host.docker.internal:11434")
 
 # Cache for available models (refreshed on each node load)
 _cached_models: List[str] = []
@@ -34,25 +32,12 @@ _cache_initialized: bool = False
 def get_ollama_models(ollama_url: str = None, timeout: int = 2) -> List[str]:
     """
     Fetch available models from Ollama synchronously.
-
-    Called at node load time to populate the dropdown.
-    Uses a short timeout to avoid blocking ComfyUI startup.
-    Tries multiple endpoints (localhost, Docker gateway, etc.)
-
-    Args:
-        ollama_url: Ollama API endpoint (None = auto-detect)
-        timeout: Request timeout in seconds (short for startup)
-
-    Returns:
-        List of model names, or fallback list if Ollama unreachable
     """
     global _cached_models, _cache_initialized
 
-    # Return cache if already initialized
     if _cache_initialized and _cached_models:
         return _cached_models
 
-    # Fallback models if Ollama is not reachable
     fallback_models = [
         "qwen2.5:7b-instruct",
         "qwen2.5:14b-instruct",
@@ -61,19 +46,17 @@ def get_ollama_models(ollama_url: str = None, timeout: int = 2) -> List[str]:
         "gemma2:9b",
     ]
 
-    # URLs to try (in order of preference)
     urls_to_try = []
     if ollama_url:
         urls_to_try.append(ollama_url)
     urls_to_try.extend([
         DEFAULT_OLLAMA_URL,
-        "http://host.docker.internal:11434",  # Docker with extra_hosts
-        "http://localhost:11434",  # Native installation
-        "http://172.17.0.1:11434",  # Docker bridge gateway (Linux)
-        "http://172.18.0.1:11434",  # Alternative Docker network
+        "http://host.docker.internal:11434",
+        "http://localhost:11434",
+        "http://172.17.0.1:11434",
+        "http://172.18.0.1:11434",
     ])
 
-    # Remove duplicates while preserving order
     seen = set()
     urls_to_try = [u for u in urls_to_try if not (u in seen or seen.add(u))]
 
@@ -95,21 +78,16 @@ def get_ollama_models(ollama_url: str = None, timeout: int = 2) -> List[str]:
                         return _cached_models
 
         except urllib.error.URLError:
-            continue  # Try next URL
+            continue
         except Exception:
-            continue  # Try next URL
+            continue
 
-    # Return fallback if Ollama not available
     print("[PromptEnhancerPro] Ollama not reachable, using fallback model list")
     return fallback_models
 
 
 def refresh_model_cache(ollama_url: str = DEFAULT_OLLAMA_URL) -> List[str]:
-    """
-    Force refresh the model cache.
-
-    Can be called to update the model list without restarting ComfyUI.
-    """
+    """Force refresh the model cache."""
     global _cached_models, _cache_initialized
     _cache_initialized = False
     _cached_models = []
@@ -122,15 +100,7 @@ class PromptEnhancerProError(Exception):
 
 
 def get_effective_seed(seed_input: int) -> int:
-    """
-    Get effective seed value.
-
-    Args:
-        seed_input: User-provided seed (-1 for random)
-
-    Returns:
-        Valid seed value
-    """
+    """Get effective seed value."""
     if seed_input == -1:
         return random.randint(0, 2147483647)
     return seed_input
@@ -139,9 +109,6 @@ def get_effective_seed(seed_input: int) -> int:
 class PromptEnhancerPro:
     """
     Main Prompt Enhancer Pro Node
-
-    Enhances prompts using Ollama LLM with built-in templates
-    and automatic VRAM management.
     """
 
     def __init__(self):
@@ -150,8 +117,6 @@ class PromptEnhancerPro:
     @classmethod
     def INPUT_TYPES(cls):
         enhancement_modes = ["character_builder", "freeform", "scene_builder", "portrait", "custom_template"]
-
-        # Fetch available Ollama models dynamically
         available_models = get_ollama_models()
 
         return {
@@ -236,60 +201,37 @@ class PromptEnhancerPro:
         temperature: float = 0.7,
         max_tokens: int = 500,
         unload_after: bool = True,
-        ollama_url: str = "http://localhost:11434",
+        ollama_url: str = "http://host.docker.internal:11434",
         timeout: int = 120,
     ) -> Tuple[str, str, str, int]:
-        """
-        Enhance a prompt using Ollama LLM.
+        """Enhance a prompt using Ollama LLM."""
 
-        Args:
-            base_prompt: The original prompt to enhance
-            enhancement_mode: Type of enhancement to apply
-            model_name: Ollama model to use
-            custom_template: Custom system prompt (for custom_template mode)
-            context_info: Additional context to include
-            seed: Random seed (-1 for random)
-            temperature: Sampling temperature
-            max_tokens: Maximum tokens to generate
-            unload_after: Whether to unload model after generation
-            ollama_url: Ollama API endpoint
-            timeout: Request timeout in seconds
-
-        Returns:
-            Tuple of (enhanced_prompt, original_prompt, model_used, seed_used)
-        """
-        # Handle empty prompt
         if not base_prompt or not base_prompt.strip():
             print("[PromptEnhancerPro] Warning: Empty prompt provided")
             return ("", "", model_name, seed if seed >= 0 else 0)
 
-        # Get effective seed
         effective_seed = get_effective_seed(seed)
 
-        # Build system prompt
         system_prompt = build_system_prompt(
             mode=enhancement_mode,
             custom_template=custom_template if custom_template else None,
             context_info=context_info if context_info else None,
         )
 
-        # Create client
         client = OllamaClient(base_url=ollama_url)
 
         try:
             # Check connection first
-            connected, conn_msg = run_async(client.check_connection())
+            connected, conn_msg = client.check_connection()
             if not connected:
                 print(f"[PromptEnhancerPro] Warning: {conn_msg}")
                 print("[PromptEnhancerPro] Returning original prompt as fallback")
                 return (base_prompt, base_prompt, model_name, effective_seed)
 
-            # Determine keep_alive based on unload_after setting
             keep_alive = "0" if unload_after else "5m"
 
-            # Generate enhanced prompt
             print(f"[PromptEnhancerPro] Enhancing prompt with {model_name}...")
-            response = run_async(client.generate(
+            response = client.generate(
                 model=model_name,
                 prompt=base_prompt,
                 system=system_prompt,
@@ -298,7 +240,7 @@ class PromptEnhancerPro:
                 seed=effective_seed,
                 keep_alive=keep_alive,
                 timeout=timeout,
-            ))
+            )
 
             if response.success:
                 enhanced = response.content.strip()
@@ -323,24 +265,14 @@ class PromptEnhancerPro:
             print("[PromptEnhancerPro] Returning original prompt as fallback")
             return (base_prompt, base_prompt, model_name, effective_seed)
 
-        finally:
-            # Clean up client session
-            try:
-                run_async(client.close())
-            except Exception:
-                pass
-
 
 class PromptEnhancerProAdvanced(PromptEnhancerPro):
-    """
-    Advanced version with additional controls and batch support.
-    """
+    """Advanced version with additional controls."""
 
     @classmethod
     def INPUT_TYPES(cls):
         base_inputs = PromptEnhancerPro.INPUT_TYPES()
 
-        # Add advanced options
         base_inputs["optional"]["negative_prompt_mode"] = ("BOOLEAN", {
             "default": False,
             "label_on": "Also Generate Negative",
@@ -371,16 +303,14 @@ class PromptEnhancerProAdvanced(PromptEnhancerPro):
         temperature: float = 0.7,
         max_tokens: int = 500,
         unload_after: bool = True,
-        ollama_url: str = "http://localhost:11434",
+        ollama_url: str = "http://host.docker.internal:11434",
         timeout: int = 120,
         negative_prompt_mode: bool = False,
         language: str = "auto",
         verbosity: str = "normal",
     ) -> Tuple[str, str, str, str, int]:
-        """
-        Advanced prompt enhancement with negative prompt generation.
-        """
-        # Build context with language and verbosity preferences
+        """Advanced prompt enhancement with negative prompt generation."""
+
         context_parts = []
         if context_info:
             context_parts.append(context_info)
@@ -399,7 +329,6 @@ class PromptEnhancerProAdvanced(PromptEnhancerPro):
 
         combined_context = "\n".join(context_parts) if context_parts else ""
 
-        # Get enhanced prompt using base class method
         enhanced, original, model, eff_seed = self.enhance_prompt(
             base_prompt=base_prompt,
             enhancement_mode=enhancement_mode,
@@ -409,17 +338,14 @@ class PromptEnhancerProAdvanced(PromptEnhancerPro):
             seed=seed,
             temperature=temperature,
             max_tokens=max_tokens,
-            unload_after=False if negative_prompt_mode else unload_after,  # Keep loaded if generating negative
+            unload_after=False if negative_prompt_mode else unload_after,
             ollama_url=ollama_url,
             timeout=timeout,
         )
 
         negative_prompt = ""
 
-        # Generate negative prompt if requested
         if negative_prompt_mode and enhanced != original:
-            from ..utils import build_system_prompt
-
             neg_system = build_system_prompt(
                 mode="negative_prompt_helper",
                 context_info=f"Original prompt: {base_prompt}\nEnhanced prompt: {enhanced}"
@@ -427,19 +353,18 @@ class PromptEnhancerProAdvanced(PromptEnhancerPro):
 
             client = OllamaClient(base_url=ollama_url)
             try:
-                # Use different seed for negative prompt
                 neg_seed = (eff_seed + 1) % 2147483647
 
-                response = run_async(client.generate(
+                response = client.generate(
                     model=model_name,
                     prompt=f"Generate a negative prompt for: {enhanced}",
                     system=neg_system,
-                    temperature=temperature * 0.8,  # Slightly lower temp for negative
+                    temperature=temperature * 0.8,
                     max_tokens=200,
                     seed=neg_seed,
                     keep_alive="0" if unload_after else "5m",
                     timeout=timeout,
-                ))
+                )
 
                 if response.success and response.content:
                     negative_prompt = response.content.strip()
@@ -447,19 +372,12 @@ class PromptEnhancerProAdvanced(PromptEnhancerPro):
 
             except Exception as e:
                 print(f"[PromptEnhancerPro] Error generating negative prompt: {e}")
-            finally:
-                try:
-                    run_async(client.close())
-                except Exception:
-                    pass
 
         return (enhanced, negative_prompt, original, model, eff_seed)
 
 
 class OllamaConnectionChecker:
-    """
-    Utility node to check Ollama connection status.
-    """
+    """Utility node to check Ollama connection status."""
 
     def __init__(self):
         pass
@@ -483,18 +401,16 @@ class OllamaConnectionChecker:
 
     def check_connection(
         self,
-        ollama_url: str = "http://localhost:11434",
+        ollama_url: str = "http://host.docker.internal:11434",
     ) -> Tuple[bool, str, str]:
-        """
-        Check if Ollama is reachable and list available models.
-        """
+        """Check if Ollama is reachable and list available models."""
         client = OllamaClient(base_url=ollama_url)
 
         try:
-            connected, message = run_async(client.check_connection())
+            connected, message = client.check_connection()
 
             if connected:
-                success, models = run_async(client.list_models())
+                success, models = client.list_models()
                 if success:
                     models_str = ", ".join(models) if models else "No models installed"
                     return (True, "Connected to Ollama", models_str)
@@ -505,24 +421,15 @@ class OllamaConnectionChecker:
         except Exception as e:
             return (False, f"Error: {str(e)}", "")
 
-        finally:
-            try:
-                run_async(client.close())
-            except Exception:
-                pass
-
 
 class OllamaModelManager:
-    """
-    Node for managing Ollama model VRAM allocation.
-    """
+    """Node for managing Ollama model VRAM allocation."""
 
     def __init__(self):
         pass
 
     @classmethod
     def INPUT_TYPES(cls):
-        # Fetch available Ollama models dynamically
         available_models = get_ollama_models()
 
         return {
@@ -553,17 +460,15 @@ class OllamaModelManager:
         self,
         action: str,
         model_name: str,
-        ollama_url: str = "http://localhost:11434",
+        ollama_url: str = "http://host.docker.internal:11434",
         keep_alive: str = "5m",
     ) -> Tuple[bool, str, str]:
-        """
-        Manage Ollama model loading/unloading.
-        """
+        """Manage Ollama model loading/unloading."""
         manager = VRAMManager(ollama_url=ollama_url)
 
         try:
             if action == "check_loaded":
-                success, models = run_async(manager.get_loaded_models())
+                success, models = manager.get_loaded_models()
                 if success:
                     if models:
                         model_names = [m.name for m in models]
@@ -572,23 +477,23 @@ class OllamaModelManager:
                 return (False, "Could not check loaded models", "")
 
             elif action == "load_model":
-                success, message = run_async(manager.load_model(model_name, keep_alive))
+                success, message = manager.load_model(model_name, keep_alive)
                 if success:
-                    _, models = run_async(manager.get_loaded_models())
+                    _, models = manager.get_loaded_models()
                     model_names = [m.name for m in models] if models else []
                     return (True, message, ", ".join(model_names))
                 return (False, message, "")
 
             elif action == "unload_model":
-                success, message = run_async(manager.unload_model(model_name))
+                success, message = manager.unload_model(model_name)
                 if success:
-                    _, models = run_async(manager.get_loaded_models())
+                    _, models = manager.get_loaded_models()
                     model_names = [m.name for m in models] if models else []
                     return (True, message, ", ".join(model_names))
                 return (False, message, "")
 
             elif action == "unload_all":
-                success, unloaded = run_async(manager.unload_all_models())
+                success, unloaded = manager.unload_all_models()
                 if success:
                     if unloaded:
                         return (True, f"Unloaded: {', '.join(unloaded)}", "")
@@ -596,7 +501,6 @@ class OllamaModelManager:
                 return (False, "Could not unload models", "")
 
             elif action == "refresh_models":
-                # Refresh the model cache
                 models = refresh_model_cache(ollama_url)
                 if models:
                     return (True, f"Refreshed: {len(models)} models found", ", ".join(models))
@@ -607,12 +511,6 @@ class OllamaModelManager:
 
         except Exception as e:
             return (False, f"Error: {str(e)}", "")
-
-        finally:
-            try:
-                run_async(manager.close())
-            except Exception:
-                pass
 
 
 # ============================================================================
